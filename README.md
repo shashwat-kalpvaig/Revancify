@@ -1,11 +1,9 @@
-# Revancify 🛠️ (Archived)
+# Revancify 🛠️
 ### A TUI wrapper for Revanced CLI with amazing features.
 
 [![TelegramChannel](https://img.shields.io/badge/Telegram_Support_Chat-2CA5E0?style=for-the-badge&logo=Telegram&logoColor=FFFFFF)](https://t.me/decipher_projects)
 
-## Alternative
-### 1. [ReVanced Manager (Official)](https://github.com/ReVanced/revanced-manager)
-### 2. [Universal ReVanced Manager](https://github.com/Jman-Github/Universal-ReVanced-Manager)
+> Maintained fork of [decipher3114/Revancify](https://github.com/decipher3114/Revancify) (archived in December 2025), updated for ReVanced CLI v6.
 
 ## Termux
 
@@ -31,17 +29,30 @@
 # Guide
 
 ## Installation
-1. Download and Install [Termux](#termux).
-2. Open Termux.
-3. Copy and paste this command.
+1. Install [Termux](https://github.com/termux/termux-app/releases/latest) (GitHub or F-Droid build, **not** the Play Store one).
+2. Open Termux and run this single command:
 ```
-curl -sL https://github.com/decipher3114/Revancify/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shashwat-kalpvaig/Revancify/main/install.sh | bash
 ```
+It installs everything it needs (Java 21, dialog, jq, pup, aapt2, APKEditor), asks for the storage permission once and starts Revancify.
 
 ## Usage
-After installation, type `revancify` in termux and press enter.  
+After installation, type `revancify` in Termux and press enter.
 
 Or use with arguments. Check them with `revancify -h`
+
+## Patch sources
+| Source | Patches | CLI |
+|---|---|---|
+| ReVanced | [api.revanced.app](https://api.revanced.app/v5/patches) (moved off GitHub in 2026) | ReVanced CLI v6 |
+| ReVanced-Extended | [inotia00/revanced-patches](https://github.com/inotia00/revanced-patches) | inotia00 CLI v5 |
+
+Anddea (now built for Morphe) and RVX Android 6-7 (YouTube blocks those old clients) were removed.
+
+## APKMirror and Cloudflare
+Apps are downloaded from apkmirror.com, which sometimes blocks scripts with a Cloudflare check.
+If that happens, download the APK (or `.apkm` bundle) yourself, put it in `Internal Storage/Revancify/Stock`
+and use the **Import** button in the app selection menu.
 
 # Thanks & Credits
 [Revanced](https://github.com/revanced)  

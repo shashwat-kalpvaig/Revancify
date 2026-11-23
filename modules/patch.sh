@@ -49,10 +49,13 @@ patchApp() {
                     .key + "=" +
                     (
                         .value |
-                        if . != null then
-                            . | tostring
-                        else
+                        if . == null then
                             empty
+                        elif type == "string" then
+                            # Quoted, so the CLI keeps e.g. "123" or "true" as a string.
+                            "\"" + . + "\""
+                        else
+                            tostring
                         end
                     )
                 else
@@ -62,10 +65,12 @@ patchApp() {
         '
     )
 
-    echo -e "Root Access: $ROOT_ACCESS\nArchitecture: $ARCH\nApp: $APP_NAME v$APP_VER\nCLI: $CLI_FILE\nPatches: $PATCHES_FILE\nArguments: ${ARGUMENTS[*]}\n\nLogs:\n" > "$STORAGE/patch_log.txt"
+    echo -e "Root Access: $ROOT_ACCESS\nArchitecture: $ARCH\nApp: $APP_NAME v$APP_VER\nCLI: $CLI_FILE\nJava: $(java -version 2>&1 | head -n 1)\nPatches: $PATCHES_FILE\nArguments: ${ARGUMENTS[*]}\n\nLogs:\n" > "$STORAGE/patch_log.txt"
+
+    patchesFileArgs
 
     java -jar "$CLI_FILE" patch \
-        --force --exclusive --purge --patches="$PATCHES_FILE" \
+        --force --exclusive --purge "${PATCHES_ARGS[@]}" \
         --out="apps/$APP_NAME/$APP_VER-$SOURCE.apk" \
         "${ARGUMENTS[@]}" \
         --custom-aapt2-binary="./bin/aapt2" \

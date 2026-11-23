@@ -1,5 +1,7 @@
 #!/usr/bin/bash
 
+REPO="shashwat-kalpvaig/Revancify"
+BRANCH="main"
 SRC="$HOME/Revancify"
 
 HELP="revancify
@@ -25,7 +27,7 @@ while getopts ":furvh" OPT 2> /dev/null; do
             ROOT_ACCESS=false
             ;;
         v)
-            if [ -e "$SRC" ]; then
+            if [ -e "$SRC/.info" ]; then
                 source "$SRC/.info"
                 echo "$VERSION"
             else
@@ -54,100 +56,137 @@ terminate() {
 }
 trap terminate SIGTERM SIGINT SIGABRT
 
+if [ -z "$PREFIX" ] || [[ "$PREFIX" != *com.termux* ]]; then
+    echo "Termux not detected !!"
+    exit 1
+fi
+
+# downloadGitHubAsset REPO JQ_FILTER OUTPUT [EXECUTABLE]
+# JQ_FILTER selects one asset of the latest release.
+downloadGitHubAsset() {
+    local REPOSITORY="$1" FILTER="$2" OUTPUT="$3" CTR RESPONSE
+    for CTR in 1 2 3; do
+        readarray -t RESPONSE < <(
+            curl -sL --max-time 20 "https://api.github.com/repos/$REPOSITORY/releases/latest" |
+                jq -r --arg ARCH "$ARCH" "[.assets[] | select($FILTER)][0] // empty | .browser_download_url, .size" 2> /dev/null
+        )
+        [ "${#RESPONSE[@]}" -eq 2 ] || continue
+        wget -q --show-progress "${RESPONSE[0]}" -O "$OUTPUT"
+        if [ "${RESPONSE[1]}" == "$(stat -c %s "$OUTPUT" 2> /dev/null)" ]; then
+            return 0
+        fi
+        rm -f "$OUTPUT"
+    done
+    return 1
+}
+
 installDependencies() {
-    local BINS BIN CTR RESPONSE
+    local PKGS=()
     echo "Checking dependencies..."
 
-    [ -e "$HOME/storage" ] || termux-setup-storage
-
-    BINS=$(ls "$PREFIX/bin")
-    grep -q java <<< "$BINS" || PKGS+=("openjdk-21")
-    grep -q wget <<< "$BINS" || PKGS+=("wget")
-    grep -q tput <<< "$BINS" || PKGS+=("ncurses-utils")
-    grep -q dialog <<< "$BINS" || PKGS+=("dialog")
-    grep -q pup <<< "$BINS" || PKGS+=("pup")
-    grep -q jq <<< "$BINS" || PKGS+=("jq")
-    grep -q unzip <<< "$BINS" || PKGS+=("unzip")
+    java -version &> /dev/null || PKGS+=("openjdk-21")
+    command -v wget &> /dev/null || PKGS+=("wget")
+    command -v tput &> /dev/null || PKGS+=("ncurses-utils")
+    command -v dialog &> /dev/null || PKGS+=("dialog")
+    command -v pup &> /dev/null || PKGS+=("pup")
+    command -v jq &> /dev/null || PKGS+=("jq")
+    command -v unzip &> /dev/null || PKGS+=("unzip")
+    command -v killall &> /dev/null || PKGS+=("psmisc")
+    command -v termux-open &> /dev/null || PKGS+=("termux-tools")
 
     if [ "${#PKGS[@]}" -ne 0 ]; then
-        pkg update || return 1
-        yes | pkg install "${PKGS[@]}" || return 1
+        echo -e "\nInstalling: ${PKGS[*]}\n"
+        export DEBIAN_FRONTEND=noninteractive
+        # A full upgrade first avoids broken partial upgrades (e.g. libssl mismatches).
+        yes | pkg update -y
+        yes | pkg upgrade -y
+        yes | pkg install -y "${PKGS[@]}" || return 1
+        java -version &> /dev/null || return 1
     fi
 
-    sed -i '/allow-external-apps/s/# //' "$HOME/.termux/termux.properties"
+    if [ ! -d "$HOME/storage/shared" ]; then
+        echo -e "\nAllow the storage permission when Android asks for it."
+        termux-setup-storage
+        for _ in $(seq 30); do
+            [ -d "$HOME/storage/shared" ] && break
+            sleep 1
+        done
+        if [ ! -d "$HOME/storage/shared" ]; then
+            echo "Storage permission not granted. Run 'termux-setup-storage' and try again."
+            return 1
+        fi
+    fi
 
-    [ -e "$SRC/bin" ] || mkdir -p "$SRC/bin"
+    # Lets Revancify open the patched APK in the package installer.
+    mkdir -p "$HOME/.termux"
+    touch "$HOME/.termux/termux.properties"
+    if grep -q '^# *allow-external-apps' "$HOME/.termux/termux.properties"; then
+        sed -i 's/^# *allow-external-apps.*/allow-external-apps = true/' "$HOME/.termux/termux.properties"
+    elif ! grep -q '^allow-external-apps' "$HOME/.termux/termux.properties"; then
+        echo "allow-external-apps = true" >> "$HOME/.termux/termux.properties"
+    fi
+    termux-reload-settings &> /dev/null
 
-    AAPT2="$SRC/bin/aapt2"
-    APK_EDITOR="$SRC/bin/APKEditor.jar"
+    mkdir -p "$SRC/bin"
 
-    CTR=0 && while [ ! -e "$AAPT2" ]; do
-        [ $CTR -gt 2 ] && return 1
+    ARCH=$(getprop ro.product.cpu.abi)
+
+    if [ ! -s "$SRC/bin/aapt2" ]; then
         echo -e "\nDownloading aapt2...\n"
-        readarray -t RESPONSE < <(curl -s "https://api.github.com/repos/decipher3114/binaries/releases/latest" | jq -r --arg ARCH "$(getprop ro.product.cpu.abi)" '.assets[] | if (.name | test($ARCH)) then (.browser_download_url, .size) else empty end' 2> /dev/null)
-        [ "${#RESPONSE[@]}" -eq 0 ] && return 1
-        wget -q --show-progress "${RESPONSE[0]}" -O "$AAPT2"
-        chmod +x "$AAPT2"
-        if [ "${RESPONSE[1]}" == "$(stat -c %s "$AAPT2" 2> /dev/null)" ]; then
-            break
-        else
-            rm "$AAPT2"
-        fi
-        ((CTR++))
-    done
+        downloadGitHubAsset "decipher3114/binaries" '.name | endswith($ARCH)' "$SRC/bin/aapt2" || return 1
+        chmod +x "$SRC/bin/aapt2"
+    fi
 
-    CTR=0 && while [ ! -e "$APK_EDITOR" ]; do
-        [ $CTR -gt 2 ] && return 1
+    if [ ! -s "$SRC/bin/APKEditor.jar" ]; then
         echo -e "\nDownloading APKEditor...\n"
-        readarray -t RESPONSE < <(curl -s "https://api.github.com/repos/REAndroid/APKEditor/releases/latest" | jq -r '.assets[0] | .browser_download_url, .size' 2> /dev/null)
-        [ "${#RESPONSE[@]}" -eq 0 ] && return 1
-        wget -q --show-progress "${RESPONSE[0]}" -O "$APK_EDITOR"
-        if [ "${RESPONSE[1]}" == "$(stat -c %s "$APK_EDITOR" 2> /dev/null)" ]; then
-            break
-        else
-            rm "$APK_EDITOR"
-            yes | pkg uninstall -y openjdk-21
-            yes | pkg install openjdk-17
-        fi
-        ((CTR++))
-    done
+        downloadGitHubAsset "REAndroid/APKEditor" '.name | endswith(".jar")' "$SRC/bin/APKEditor.jar" || return 1
+    fi
 
     return 0
 }
 
 fetchSrc() {
+    local REMOTE_VERSION TMP CONTENT
+
     [ -e "$SRC/.info" ] && source "$SRC/.info"
 
     [ "$INTERNET_ACCESS" == false ] && return
+    [ "$REVANCIFY_UPDATED" == true ] && return
 
-    ping -c 1 google.com &> /dev/null || return
+    echo "Checking for updates..."
 
-    echo "Checking Latest Release..."
+    REMOTE_VERSION=$(curl -sL --max-time 10 "https://raw.githubusercontent.com/$REPO/$BRANCH/.info" 2> /dev/null | sed -n "s/^VERSION='\(.*\)'$/\1/p")
 
-    TAG=$(curl -s 'https://api.github.com/repos/decipher3114/Revancify/releases/latest' 2> /dev/null | jq -r '.tag_name')
+    if [ -z "$REMOTE_VERSION" ]; then
+        [ -e "$SRC/main.sh" ] && return
+        echo -e "Unable to download Revancify !!\nCheck your internet connection and try again."
+        exit 1
+    fi
 
-    [ "$TAG" == "$VERSION" ] && return
+    [ "$REMOTE_VERSION" == "$VERSION" ] && [ -e "$SRC/main.sh" ] && return
 
-    echo "Revancify $TAG is available..."
+    echo "Installing Revancify $REMOTE_VERSION..."
 
-    echo "Installing..."
-
-    wget -qc "https://github.com/decipher3114/Revancify/archive/refs/tags/$TAG.zip" -O "$TAG.zip"
-    if [ -e "$TAG.zip" ]; then
-        unzip -qo "$TAG.zip"
-        rm -rf "$TAG.zip"
-        for CONTENT in Revancify-*/* Revancify-*/.*; do
+    TMP=$(mktemp -d "${TMPDIR:-$PREFIX/tmp}/revancify.XXXXXX")
+    if curl -fsSL --max-time 120 "https://github.com/$REPO/archive/refs/heads/$BRANCH.zip" -o "$TMP/src.zip" &&
+        unzip -qo "$TMP/src.zip" -d "$TMP"; then
+        mkdir -p "$SRC"
+        # Replace only files shipped in the repo; keep assets, apps, bin and .config.
+        for CONTENT in "$TMP"/Revancify-*/* "$TMP"/Revancify-*/.[!.]*; do
+            [ -e "$CONTENT" ] || continue
             rm -rf "${SRC:?}/$(basename "$CONTENT")"
             mv "$CONTENT" "$SRC/"
         done
-        rm -rf Revancify-* &> /dev/null
+        rm -rf "$TMP"
         cp -f "$SRC/revancify" "$PREFIX/bin/revancify"
         chmod +x "$PREFIX/bin/revancify"
-        echo -e "Revancify $TAG is now installed.\nRun 'revancify -h' for help."
-        exit
+        echo -e "Revancify $REMOTE_VERSION is now installed.\nRun 'revancify -h' for help."
+        sleep 1
+        REVANCIFY_UPDATED=true exec "$PREFIX/bin/revancify" "$@"
     else
-        echo -e "Unable to install Revancify $TAG !!\nPlease try again with proper Internet"
-        exit 1
+        rm -rf "$TMP"
+        echo -e "Unable to install Revancify $REMOTE_VERSION !!\nPlease try again with proper Internet"
+        [ -e "$SRC/main.sh" ] || exit 1
     fi
 }
 
@@ -158,7 +197,7 @@ if ! installDependencies; then
     exit 1
 fi
 
-fetchSrc
+fetchSrc "$@"
 
 if [ "$ROOT_ACCESS" != false ] && su -c 'exit' &> /dev/null; then
     ROOT_ACCESS=true

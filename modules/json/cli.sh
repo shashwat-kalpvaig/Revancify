@@ -5,11 +5,24 @@ parseJsonFromCLI() {
 
     AVAILABLE_PATCHES='[]'
 
-    readarray -d '' -t PACKAGES < <(java -jar "$CLI_FILE" list-versions "$PATCHES_FILE" -u | sed 's/INFO: //' | awk -v RS='' -v ORS='\0' '1')
+    local OPTION_MARKER
 
-    readarray -d '' -t PATCHES < <(java -jar "$CLI_FILE" list-patches "$PATCHES_FILE" -iopd | sed 's/INFO: //' | awk -v RS='' -v ORS='\0' '1')
+    if [ "${CLI_MAJOR:-0}" -ge 6 ]; then
+        # CLI v6: patches files are passed with -p (+ -b to skip signature check),
+        # short list flags are gone and options are identified by "Name:" only.
+        readarray -d '' -t PACKAGES < <(java -jar "$CLI_FILE" list-versions -p "$PATCHES_FILE" -b -u 2> /dev/null | sed 's/INFO: //' | awk -v RS='' -v ORS='\0' '1')
+        readarray -d '' -t PATCHES < <(java -jar "$CLI_FILE" list-patches -p "$PATCHES_FILE" -b --options --packages 2> /dev/null | sed 's/INFO: //' | awk -v RS='' -v ORS='\0' '1')
+        OPTION_MARKER="Name"
+    else
+        readarray -d '' -t PACKAGES < <(java -jar "$CLI_FILE" list-versions "$PATCHES_FILE" -u 2> /dev/null | sed 's/INFO: //' | awk -v RS='' -v ORS='\0' '1')
+        readarray -d '' -t PATCHES < <(java -jar "$CLI_FILE" list-patches "$PATCHES_FILE" -iopd 2> /dev/null | sed 's/INFO: //' | awk -v RS='' -v ORS='\0' '1')
+        OPTION_MARKER="Title"
+    fi
 
     TOTAL=$((${#PACKAGES[@]} + ${#PATCHES[@]}))
+    if [ "$TOTAL" -eq 0 ]; then
+        return 1
+    fi
 
     CTR=0
 
@@ -74,22 +87,25 @@ parseJsonFromCLI() {
 
         OPTIONS_ARRAY='[]'
         if grep -q "Options:" <<< "$PATCH"; then
-            PATCH=$(sed '/^Options:/d;s/^\t//g' <<< "$PATCH")
-            readarray -d '' -t OPTIONS < <(awk -v RS='\n\nTitle' -v ORS='\0' '1' <<< "$PATCH")
+            # Keep only the options block, so the patch description doesn't leak into the first option.
+            PATCH=$(sed '0,/^Options:/d;s/^\t//g' <<< "$PATCH")
+            readarray -d '' -t OPTIONS < <(awk -v RS="\n\n$OPTION_MARKER" -v ORS='\0' '1' <<< "$PATCH")
 
             for OPTION in "${OPTIONS[@]}"; do
 
+                TITLE=$(grep -E "^$OPTION_MARKER:|^:" <<< "$OPTION" | head -n 1 | sed 's/^[^:]*: //')
                 KEY=$(grep '^Key:' <<< "$OPTION" | sed 's/.*: //;s/ //g')
-                TITLE=$(grep -E '^Title:|^:' <<< "$OPTION" | sed 's/.*: //;')
-                REQUIRED=$(grep '^Required:' <<< "$OPTION" | sed 's/.*: //')
-                DEFAULT=$(grep '^Default:' <<< "$OPTION" | sed 's/.*: //')
+                # CLI v6 has no separate key: the option name is the key.
+                [ -z "$KEY" ] && KEY="$TITLE"
+                REQUIRED=$(grep '^Required:' <<< "$OPTION" | sed 's/^Required: //')
+                DEFAULT=$(grep '^Default:' <<< "$OPTION" | sed 's/^Default: //')
                 TYPE=$(grep '^Type:' <<< "$OPTION" | sed 's/.*: //;s/ //')
 
                 if grep -q "^Possible values:" <<< "$OPTION"; then
                     readarray -t VALUES < <(grep $'^\t' <<< "$OPTION" | sed 's/\t//')
                 fi
 
-                OPTION=$(sed '/^Key:/d;/^Title:/d;/^:/d;/^Required:/d;/^Default:/d;/^Type:/d;/^Possible values:/d;/^\t/d' <<< "$OPTION")
+                OPTION=$(sed "/^Key:/d;/^$OPTION_MARKER:/d;/^:/d;"'/^Required:/d;/^Default:/d;/^Type:/d;/^Possible values:/d;/^\t/d' <<< "$OPTION")
 
                 DESCRIPTION=$(sed 's/^Description: //;s/\n/\\n/g' <<< "$OPTION")
 
@@ -122,17 +138,17 @@ parseJsonFromCLI() {
                         (
                             $DEFAULT |
                             if . != "" then
-                                (
+                                try (
                                     if $TYPE == $STRING then
                                         tostring
                                     elif $TYPE == $NUMBER then
                                         tonumber
                                     elif $TYPE == $BOOLEAN then
-                                        toboolean
+                                        (. == "true")
                                     elif $TYPE == $STRINGARRAY then
                                         (gsub("(?<a>([^,\\[\\] ]+))" ; "\"" + .a + "\"") | fromjson)
                                     end
-                                )
+                                ) catch null
                             else
                                 null
                             end
@@ -142,7 +158,7 @@ parseJsonFromCLI() {
                             "key": $KEY,
                             "title": $TITLE,
                             "description": $DESCRIPTION,
-                            "required": ($REQUIRED | toboolean),
+                            "required": ($REQUIRED == "true"),
                             "type": $TYPE,
                             "default": $DEFAULT,
                             "values": $ARGS.positional
@@ -163,7 +179,7 @@ parseJsonFromCLI() {
                     map(
                         if .pkgName == $PKG_NAME then
                             .patches |= (
-                                if ($USE | toboolean) then
+                                if $USE == "true" then
                                     .recommended += [$PATCH_NAME]
                                 else
                                     .optional += [$PATCH_NAME]

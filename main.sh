@@ -9,6 +9,12 @@ main() {
     setEnv ALLOW_APP_VERSION_DOWNGRADE "off" init .config
     source .config
 
+    # Sources that were removed (Anddea moved to Morphe, RVX Android 6-7 is dead).
+    if ! jq -e --arg SOURCE "$SOURCE" 'any(.[]; .source == $SOURCE)' sources.json &> /dev/null; then
+        SOURCE="ReVanced"
+        setEnv SOURCE "$SOURCE" update .config
+    fi
+
     mkdir -p "assets" "apps" "$STORAGE" "$STORAGE/Patched" "$STORAGE/Stock"
 
     [ "$ROOT_ACCESS" == true ] && MENU_ENTRY=(7 "Unmount Patched app")
@@ -30,7 +36,7 @@ main() {
                 initiateWorkflow
                 ;;
             2)
-                fetchAssetsInfo || break
+                fetchAssetsInfo || continue
                 fetchAssets
                 ;;
             3)

@@ -3,7 +3,7 @@
 terminate() {
     killall -9 java &> /dev/null
     killall -9 dialog &> /dev/null
-    killall -9 WGET &> /dev/null
+    killall -9 wget &> /dev/null
     rm -rf -- *temporary*
     tput cnorm
     clear
@@ -26,7 +26,8 @@ notify() {
 }
 
 internet() {
-    if ! ping -c 1 google.com &> /dev/null; then
+    # ping is not permitted for apps on many Android builds; use an HTTPS request.
+    if ! curl -s -o /dev/null --connect-timeout 5 --max-time 10 -I "https://api.github.com"; then
         notify msg "Oops! No Internet Connection available.\n\nConnect to Internet and try again later."
         return 1
     fi

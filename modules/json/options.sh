@@ -238,7 +238,7 @@ editOptions() {
                                         null
                                     elif length == 1 then
                                         if $TYPE == $BOOLEAN then
-                                            .[0] | toboolean
+                                            (.[0] == "true")
                                         elif $TYPE == $NUMBER then
                                             .[0] | tonumber
                                         elif $TYPE == $STRING then

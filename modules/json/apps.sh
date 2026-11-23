@@ -75,7 +75,23 @@ fetchAppsInfo() {
             ' > "assets/$SOURCE/Apps-$PATCHES_VERSION.json" \
                 2> /dev/null
     else
-        notify msg "API request failed for apkmirror.com.\nTry again later..."
-        return 1
+        # apkmirror.com is often behind a Cloudflare challenge. Don't block the
+        # whole app: list the patchable packages so they can still be imported.
+        readarray -t APPS_LIST < <(
+            jq -rc '
+                .[] | .pkgName // empty |
+                {
+                    "pkgName": .,
+                    "appName": ((split(".") | map(select(. != "com" and . != "android" and . != "apps" and . != "app")) | last) // .),
+                    "apkmirrorAppName": ""
+                } |
+                ., "\(.appName) [\(.pkgName)]"
+            ' <<< "$AVAILABLE_PATCHES" 2> /dev/null
+        )
+        if [ ${#APPS_LIST[@]} -eq 0 ]; then
+            notify msg "API request failed for apkmirror.com.\nTry again later..."
+            return 1
+        fi
+        notify msg "apkmirror.com is not reachable right now (probably Cloudflare protection).\n\nDownload the APK yourself, put it in 'Internal Storage/Revancify/Stock' and use 'Import'."
     fi
 }

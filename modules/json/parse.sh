@@ -1,14 +1,21 @@
 #!/usr/bin/bash
 
 parsePatchesJson() {
-    while [ ! -e "assets/$SOURCE/Patches-$PATCHES_VERSION.json" ]; do
+    if [ ! -e "assets/$SOURCE/Patches-$PATCHES_VERSION.json" ]; then
+        unset AVAILABLE_PATCHES APPS_LIST
         if [ -n "$JSON_URL" ]; then
             parseJsonFromAPI
-            continue
         fi
-        parseJsonFromCLI | "${DIALOG[@]}" --gauge "Please Wait!!\nParsing JSON file for $SOURCE patches from CLI Output.\nThis might take some time." -1 -1 0
-        tput civis
-    done
+        if [ ! -e "assets/$SOURCE/Patches-$PATCHES_VERSION.json" ]; then
+            parseJsonFromCLI | "${DIALOG[@]}" --gauge "Please Wait!!\nParsing JSON file for $SOURCE patches from CLI Output.\nThis might take some time." -1 -1 0
+            tput civis
+        fi
+        if ! jq -e 'type == "array" and length > 1' "assets/$SOURCE/Patches-$PATCHES_VERSION.json" &> /dev/null; then
+            rm -f "assets/$SOURCE/Patches-$PATCHES_VERSION.json" &> /dev/null
+            notify msg "Unable to read patches from $SOURCE !!\nCheck that Java works ('java -version') or try 'Update Assets'."
+            return 1
+        fi
+    fi
 
     [ -n "$AVAILABLE_PATCHES" ] || AVAILABLE_PATCHES=$(jq -rc '.' "assets/$SOURCE/Patches-$PATCHES_VERSION.json")
 

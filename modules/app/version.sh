@@ -95,6 +95,11 @@ scrapeVersionsList() {
 chooseVersion() {
     unset APP_VER APP_DL_URL
     local INSTALLED_VERSION SELECTED_VERSION
+    if [ -z "$APKMIRROR_APP_NAME" ]; then
+        notify msg "Download from apkmirror.com is unavailable for $APP_NAME.\n\nPut the APK in 'Internal Storage/Revancify/Stock' and use 'Import'."
+        TASK="CHOOSE_APP"
+        return 1
+    fi
     internet || return 1
     getInstalledVersion
     if [ "${#VERSIONS_LIST[@]}" -eq 0 ]; then
